@@ -13,40 +13,60 @@ from calibre.ebooks.oeb.base import XPath
 from calibre.ebooks.oeb.base import XHTML
 
 
-class RecodeCallbackRegistry(type):
+class RecodeCallbackRegistry:
 
-    # registry of defined recode callbacks
-    registry = {}
-
-    def __init__(cls, name, bases, attrs):
-        RecodeCallbackRegistry.registry[cls.tag] = cls()
-        return type.__init__(cls, name, bases, attrs)
+    # global registry of defined recode callbacks
+    __registry = {}
 
     @classmethod
-    def get(cls, tag):
-        return cls.registry.get(tag)
+    def register(cls, callback):
+        cls.__registry[callback.tag] = callback
 
-    @classmethod
-    def set_logger(cls, logger):
-        for callback in cls.registry.values():
-            callback.log = logger
+    def __init__(self, logger):
+        # local registry of callback instances
+        self.registry = {
+            tag: callback(logger)
+            for tag, callback in self.__registry.items()
+        }
+
+    def get(self, tag):
+        return self.registry.get(tag)
 
 
 class RecodeCallbackBase:
-    __metaclass__ = RecodeCallbackRegistry
+
+    class __metaclass__(type):
+        def __init__(cls, name, bases, attrs):
+            type.__init__(cls, name, bases, attrs)
+            RecodeCallbackRegistry.register(cls)
 
     # NOTE: body is our first document structure tag, so it is safe to use
     #       it as a callback base example
     tag = XHTML('body')
 
-    # XXX: when callback entry point is called, it is guarantied that this
-    #      attribute is set to the current application logger
-    log = None
+    def __init__(self, logger):
+        self.log = logger
+
+        # reference counter used for tracking tags nesting
+        self.refcount = 0
+
+        # internal stack for data stashing
+        self.datastack = []
+
+    def push(self, data):
+        """Push data onto the internal stack storage."""
+        self.datastack.append(data)
+
+    def pop(self):
+        """Pop data from the internal stack storage."""
+        return self.datastack.pop()
 
     def start(self, element):
+        """Element recoding entry method."""
         return self.get_text(element)
 
     def end(self, element):
+        """Element recoding exit method."""
         return self.get_tail(element)
 
     @staticmethod
@@ -70,25 +90,39 @@ class RecodeCallbackP(RecodeCallbackBase):
         return "\n\n"
 
 
+class RecodeCallbackBr(RecodeCallbackBase):
+
+    tag = XHTML('br')
+
+    def end(self, element):
+        return " \\\\*\n"
+
+
 class RecodeCallbackSpan(RecodeCallbackBase):
 
     tag = XHTML('span')
 
     def start(self, element):
 
+        functions = []
+
         # font format is encoded in the class attribute
-        classes = self.get_classes(element)
+        for cls in set(self.get_classes(element)):
+            if cls == 'bold':
+                functions.append("\\textbf{")
+            elif cls == 'italic':
+                functions.append("\\emph{")
+            else:
+                functions.append("{")
+                self.log.warning("unrecognized span class:", cls)
 
-        if 'bold' in classes:
-            return "\\textbf{" + self.get_text(element)
-        elif 'italic' in classes:
-            return "\\emph{" + self.get_text(element)
+        # save the number of used functions, so we will close them properly
+        self.push(len(functions))
 
-        self.log.warning("unrecognized span class:", classes)
-        return "{" + self.get_text(element)
+        return "".join(functions) + self.get_text(element)
 
     def end(self, element):
-        return "}" + self.get_tail(element)
+        return "}" * self.pop() + self.get_tail(element)
 
 
 class LatexOutput(OutputFormatPlugin):
@@ -101,12 +135,18 @@ class LatexOutput(OutputFormatPlugin):
         OptionRecommendation(
             name='latex_title_page',
             recommended_value=True,
-            help=_('Insert Latex default Title Page which will appear as part of main book content.'),
+            help=_(
+                "Insert Latex default Title Page which will appear as a part "
+                "of the main book content."
+            ),
         ),
         OptionRecommendation(
             name='latex_toc',
             recommended_value=False,
-            help=_('Insert Latex default Table of Contents which will appear as part of the main book content.'),
+            help=_(
+                "Insert Latex default Table of Contents which will appear "
+                "as a part of the main book content."
+            ),
         ),
     ])
 
@@ -116,7 +156,7 @@ class LatexOutput(OutputFormatPlugin):
 
     def convert(self, oeb, output_path, input_plugin, opts, log):
         self.oeb, self.opts, self.log = oeb, opts, log
-        RecodeCallbackRegistry.set_logger(log)
+        self.callbacks = RecodeCallbackRegistry(log)
 
         # try to get basic metadata of this document
         authors = map(lambda x: x.value, oeb.metadata.author)
@@ -131,8 +171,6 @@ class LatexOutput(OutputFormatPlugin):
         output_dir = os.path.dirname(output_path)
         if not os.path.exists(output_dir) and output_dir:
             os.makedirs(output_dir)
-
-        #import pdb; pdb.set_trace()
 
         # open output file for content writing
         with open(output_path, 'w') as f:
@@ -154,7 +192,7 @@ class LatexOutput(OutputFormatPlugin):
                 title=" | ".join(titles),
             ))
 
-            # write custom command definitions and overwrites
+            # write custom command definitions and overrides
             f.write((
                 "\\newcommand{\\cover}[1]{\\def\\cover{#1}} % custom variable for cover image\n"
                 "\\newcommand{\\degree}{\\textsuperscript{o}}\n"
@@ -212,14 +250,16 @@ class LatexOutput(OutputFormatPlugin):
                 continue
             # recode the OEB document nodes into the TeX syntax
             for event, element in etree.iterwalk(body, ('start', 'end')):
-                callback = RecodeCallbackRegistry.get(element.tag)
+                callback = self.callbacks.get(element.tag)
                 if not callback:
                     self.log.warning("unhandled tag:", element.tag)
                     continue
                 if event == 'start':
+                    callback.refcount += 1
                     content.append(callback.start(element))
                 elif event == 'end':
                     content.append(callback.end(element))
+                    callback.refcount -= 1
 
         content = "".join(content)
 
@@ -235,15 +275,16 @@ class LatexOutput(OutputFormatPlugin):
         lines = []
         for line in content.splitlines():
             while len(line) > length:
-                space = line.rfind(" ", 0, length)
-                if space == -1:
+                pos = line.rfind(" ", 0, length)
+                if pos == -1:
                     # look for the first space after the length
-                    space = line.find(" ", length, len(line))
-                if space == -1:
+                    pos = line.find(" ", length, len(line))
+                if pos == -1:
                     # we are too dumb to break this line
                     break
-                lines.append(line[:space])
-                line = line[space + 1:]
+                pos += 1  # break after a "break" character
+                lines.append(line[:pos].strip())
+                line = line[pos:]
             lines.append(line)
         return "\n".join(lines)
 
