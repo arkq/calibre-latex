@@ -4,13 +4,14 @@ __license__ = 'MIT'
 __copyright__ = '2014, Arkadiusz Bokowy <arkadiusz.bokowy@gmail.com>'
 __docformat__ = 'restructuredtext en'
 
-from lxml import etree
 import os
+import re
+from lxml import etree
 
 from calibre.customize.conversion import OptionRecommendation
 from calibre.customize.conversion import OutputFormatPlugin
-from calibre.ebooks.oeb.base import XPath
 from calibre.ebooks.oeb.base import XHTML
+from calibre.ebooks.oeb.base import XPath
 
 
 class RecodeCallbackRegistry:
@@ -82,12 +83,29 @@ class RecodeCallbackBase:
         return element.attrib.get('class', "").split()
 
 
-class RecodeCallbackP(RecodeCallbackBase):
+class RecodeCallbackA(RecodeCallbackBase):
 
-    tag = XHTML('p')
+    tag = XHTML('a')
+
+    def start(self, element):
+        href = element.attrib['href']
+        text = self.get_text(element)
+        return "\\href{" + href + "}{" + text
 
     def end(self, element):
-        return "\n\n"
+        return "}" + self.get_tail(element)
+
+
+class RecodeCallbackBlockquote(RecodeCallbackBase):
+
+    tag = XHTML('blockquote')
+
+    def start(self, element):
+        return "\n\\begin{quotation}\n" + self.get_text(element)
+
+    def end(self, element):
+        # blockquote should act like paragraph, hence trailing newline
+        return "\n\\end{quotation}\n\n" + self.get_tail(element)
 
 
 class RecodeCallbackBr(RecodeCallbackBase):
@@ -95,7 +113,16 @@ class RecodeCallbackBr(RecodeCallbackBase):
     tag = XHTML('br')
 
     def end(self, element):
+        # add extra space prefix for readability's sake
         return " \\\\*\n"
+
+
+class RecodeCallbackP(RecodeCallbackBase):
+
+    tag = XHTML('p')
+
+    def end(self, element):
+        return "\n\n"
 
 
 class RecodeCallbackSpan(RecodeCallbackBase):
@@ -112,6 +139,12 @@ class RecodeCallbackSpan(RecodeCallbackBase):
                 functions.append("\\textbf{")
             elif cls == 'italic':
                 functions.append("\\emph{")
+            elif cls == 'underline':
+                functions.append("\\underline{")
+                # NOTE: Another possibility might be the usage of the normalem
+                #       package, which supports breaks in the underlined text.
+                # \usepackage[normalem]{ulem}
+                # functions.append("\\uline{")
             else:
                 functions.append("{")
                 self.log.warning("unrecognized span class:", cls)
@@ -146,6 +179,14 @@ class LatexOutput(OutputFormatPlugin):
             help=_(
                 "Insert Latex default Table of Contents which will appear "
                 "as a part of the main book content."
+            ),
+        ),
+        OptionRecommendation(
+            name='max_line_length',
+            recommended_value=78,
+            help=_(
+                "The maximum number of characters per line. Use 0 to disable "
+                "line splitting."
             ),
         ),
     ])
@@ -183,7 +224,7 @@ class LatexOutput(OutputFormatPlugin):
                 "\\usepackage[OT4]{{fontenc}}\n"
                 "\\usepackage[{languages}]{{babel}}\n"
                 "\\usepackage[pdfauthor={{{authors}}},pdftitle={{{title}}}]{{hyperref}}\n"
-                "\\usepackage{{graphicx,lettrine}}\n"
+                "\\usepackage{{graphicx,hyperref,lettrine}}\n"
                 "\n"
             ).format(
                 vimlanguage=languages[0][0],
@@ -263,15 +304,23 @@ class LatexOutput(OutputFormatPlugin):
 
         content = "".join(content)
 
-        # content post-processing
+        # fix obvious misuses of explicit newline marker
+        content = re.sub(r'^( \\\\\*\n)+', r'', content)
+        content = re.sub(r'\n\n( \\\\\*\n)+', r'\n\n', content)
+
+        # normalize white characters (tabs, spaces, multiple newlines)
+        content = re.sub(r'[ \t]+', r' ', content)
+        content = re.sub(r'\s*\n\s*\n\s*\n', r'\n\n', content)
 
         if self.opts.pretty_print:
-            content = self.latex_pretty_print(content)
+            content = self.latex_pretty_print(content, length=self.opts.max_line_length)
 
         return content
 
     @staticmethod
     def latex_pretty_print(content, length=78):
+        if not length:
+            return content
         lines = []
         for line in content.splitlines():
             while len(line) > length:
