@@ -54,6 +54,14 @@ class RecodeCallbackBase:
         # internal stack for data stashing
         self.datastack = []
 
+    def start(self, element):
+        """Element recoding entry method."""
+        return self.get_begin(element) + self.get_text(element)
+
+    def stop(self, element):
+        """Element recoding exit method."""
+        return self.get_end(element) + self.get_tail(element)
+
     def push(self, data):
         """Push data onto the internal stack storage."""
         self.datastack.append(data)
@@ -62,13 +70,18 @@ class RecodeCallbackBase:
         """Pop data from the internal stack storage."""
         return self.datastack.pop()
 
-    def start(self, element):
-        """Element recoding entry method."""
-        return self.get_text(element)
+    @staticmethod
+    def get_classes(element):
+        """Get classes set attached to the given element."""
+        return set(element.attrib.get('class', "").split())
 
-    def end(self, element):
-        """Element recoding exit method."""
-        return self.get_tail(element)
+    @staticmethod
+    def get_begin(element):
+        return ""
+
+    @staticmethod
+    def get_end(element):
+        return ""
 
     @staticmethod
     def get_text(element):
@@ -79,62 +92,16 @@ class RecodeCallbackBase:
         return element.tail or ""
 
     @staticmethod
-    def get_classes(element):
-        return element.attrib.get('class', "").split()
+    def get_class_style(classes):
+        """
+        Get style functions. In the OEB file format, style is encoded in the
+        class attribute.
 
-
-class RecodeCallbackA(RecodeCallbackBase):
-
-    tag = XHTML('a')
-
-    def start(self, element):
-        href = element.attrib['href']
-        text = self.get_text(element)
-        return "\\href{" + href + "}{" + text
-
-    def end(self, element):
-        return "}" + self.get_tail(element)
-
-
-class RecodeCallbackBlockquote(RecodeCallbackBase):
-
-    tag = XHTML('blockquote')
-
-    def start(self, element):
-        return "\n\\begin{quotation}\n" + self.get_text(element)
-
-    def end(self, element):
-        # blockquote should act like paragraph, hence trailing newline
-        return "\n\\end{quotation}\n\n" + self.get_tail(element)
-
-
-class RecodeCallbackBr(RecodeCallbackBase):
-
-    tag = XHTML('br')
-
-    def end(self, element):
-        # add extra space prefix for readability's sake
-        return " \\\\*\n"
-
-
-class RecodeCallbackP(RecodeCallbackBase):
-
-    tag = XHTML('p')
-
-    def end(self, element):
-        return "\n\n"
-
-
-class RecodeCallbackSpan(RecodeCallbackBase):
-
-    tag = XHTML('span')
-
-    def start(self, element):
-
+        That method modifies input argument - used classes are removed.
+        """
         functions = []
 
-        # font format is encoded in the class attribute
-        for cls in set(self.get_classes(element)):
+        for cls in classes:
             if cls == 'bold':
                 functions.append("\\textbf{")
             elif cls == 'italic':
@@ -145,17 +112,114 @@ class RecodeCallbackSpan(RecodeCallbackBase):
                 #       package, which supports breaks in the underlined text.
                 # \usepackage[normalem]{ulem}
                 # functions.append("\\uline{")
-            else:
-                functions.append("{")
-                self.log.warning("unrecognized span class:", cls)
+
+        # remove used (recognized) classes
+        classes.difference_update((
+            'bold', 'italic', 'underline',
+        ))
+        return functions
+
+    @staticmethod
+    def get_class_layout(classes):
+        """
+        Get layout functions. In the OEB file format layout may be encoded in
+        the class attribute, e.g. page-break.
+
+        That method modifies input argument - used classes are removed.
+        """
+        functions = []
+
+        for cls in classes:
+            if cls == 'mbppagebreak':
+                functions.append("\\chapter*{")
+
+        # remove used (recognized) classes
+        classes.difference_update((
+            'mbppagebreak',
+        ))
+        return functions
+
+
+class RecodeCallbackA(RecodeCallbackBase):
+
+    tag = XHTML('a')
+
+    def get_begin(self, element):
+        href = element.attrib.get('href', "")
+        return "\\href{" + href + "}{"
+
+    def get_end(self, element):
+        return "}"
+
+
+class RecodeCallbackBlockquote(RecodeCallbackBase):
+
+    tag = XHTML('blockquote')
+
+    def get_begin(self, element):
+        return "\n\\begin{quotation}\n"
+
+    def get_end(self, element):
+        # blockquote should act like paragraph, hence trailing newline
+        return "\n\\end{quotation}\n\n"
+
+
+class RecodeCallbackBr(RecodeCallbackBase):
+
+    tag = XHTML('br')
+
+    def get_end(self, element):
+        # add extra space prefix for readability's sake
+        return " \\\\*\n"
+
+
+class RecodeCallbackDiv(RecodeCallbackBase):
+
+    tag = XHTML('div')
+
+    def get_begin(self, element):
+        classes = self.get_classes(element)
+
+        functions = []
+        functions.extend(self.get_class_layout(classes))
+        functions.extend(self.get_class_style(classes))
 
         # save the number of used functions, so we will close them properly
         self.push(len(functions))
 
-        return "".join(functions) + self.get_text(element)
+        return "".join(functions)
 
-    def end(self, element):
-        return "}" * self.pop() + self.get_tail(element)
+    def get_end(self, element):
+        # hence div is a block tag, add a new line at the end
+        return "}" * self.pop() + "\n"
+
+
+class RecodeCallbackP(RecodeCallbackBase):
+
+    tag = XHTML('p')
+
+    def get_end(self, element):
+        return "\n\n"
+
+
+class RecodeCallbackSpan(RecodeCallbackBase):
+
+    tag = XHTML('span')
+
+    def get_begin(self, element):
+        classes = self.get_classes(element)
+
+        functions = []
+        functions.extend(self.get_class_layout(classes))
+        functions.extend(self.get_class_style(classes))
+
+        # save the number of used functions, so we will close them properly
+        self.push(len(functions))
+
+        return "".join(functions)
+
+    def get_end(self, element):
+        return "}" * self.pop()
 
 
 class LatexOutput(OutputFormatPlugin):
@@ -168,7 +232,7 @@ class LatexOutput(OutputFormatPlugin):
         OptionRecommendation(
             name='latex_title_page',
             recommended_value=True,
-            help=_(
+            help=_(  # noqa
                 "Insert Latex default Title Page which will appear as a part "
                 "of the main book content."
             ),
@@ -176,7 +240,7 @@ class LatexOutput(OutputFormatPlugin):
         OptionRecommendation(
             name='latex_toc',
             recommended_value=False,
-            help=_(
+            help=_(  # noqa
                 "Insert Latex default Table of Contents which will appear "
                 "as a part of the main book content."
             ),
@@ -184,7 +248,7 @@ class LatexOutput(OutputFormatPlugin):
         OptionRecommendation(
             name='max_line_length',
             recommended_value=78,
-            help=_(
+            help=_(  # noqa
                 "The maximum number of characters per line. Use 0 to disable "
                 "line splitting."
             ),
@@ -299,7 +363,7 @@ class LatexOutput(OutputFormatPlugin):
                     callback.refcount += 1
                     content.append(callback.start(element))
                 elif event == 'end':
-                    content.append(callback.end(element))
+                    content.append(callback.stop(element))
                     callback.refcount -= 1
 
         content = "".join(content)
