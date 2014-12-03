@@ -107,11 +107,7 @@ class RecodeCallbackBase:
             elif cls == 'italic':
                 functions.append("\\emph{")
             elif cls == 'underline':
-                functions.append("\\underline{")
-                # NOTE: Another possibility might be the usage of the normalem
-                #       package, which supports breaks in the underlined text.
-                # \usepackage[normalem]{ulem}
-                # functions.append("\\uline{")
+                functions.append("\\uline{")
 
         # remove used (recognized) classes
         classes.difference_update((
@@ -147,6 +143,17 @@ class RecodeCallbackA(RecodeCallbackBase):
     def get_begin(self, element):
         href = element.attrib.get('href', "")
         return "\\href{" + href + "}{"
+
+    def get_end(self, element):
+        return "}"
+
+
+class RecodeCallbackB(RecodeCallbackBase):
+
+    tag = XHTML('b')
+
+    def get_begin(self, element):
+        return self.get_class_style({"bold"})[0]
 
     def get_end(self, element):
         return "}"
@@ -194,6 +201,53 @@ class RecodeCallbackDiv(RecodeCallbackBase):
         return "}" * self.pop() + "\n"
 
 
+class RecodeCallbackH1(RecodeCallbackBase):
+
+    tag = XHTML('h1')
+
+    def get_begin(self, element):
+        # NOTE: To be honest, we do not know if given book/article has any
+        #       "parts" in it. None the less, the lowest section of a TeX
+        #       document structure is a part.
+        return "\\part{"
+
+    def get_end(self, element):
+        return "}"
+
+
+class RecodeCallbackH2(RecodeCallbackBase):
+
+    tag = XHTML('h2')
+
+    def get_begin(self, element):
+        return "\\chapter{"
+
+    def get_end(self, element):
+        return "}"
+
+
+class RecodeCallbackH3(RecodeCallbackBase):
+
+    tag = XHTML('h3')
+
+    def get_begin(self, element):
+        return "\\section{"
+
+    def get_end(self, element):
+        return "}"
+
+
+class RecodeCallbackI(RecodeCallbackBase):
+
+    tag = XHTML('i')
+
+    def get_begin(self, element):
+        return self.get_class_style({"italic"})[0]
+
+    def get_end(self, element):
+        return "}"
+
+
 class RecodeCallbackP(RecodeCallbackBase):
 
     tag = XHTML('p')
@@ -220,6 +274,17 @@ class RecodeCallbackSpan(RecodeCallbackBase):
 
     def get_end(self, element):
         return "}" * self.pop()
+
+
+class RecodeCallbackU(RecodeCallbackBase):
+
+    tag = XHTML('u')
+
+    def get_begin(self, element):
+        return self.get_class_style({"underline"})[0]
+
+    def get_end(self, element):
+        return "}"
 
 
 class LatexOutput(OutputFormatPlugin):
@@ -288,7 +353,8 @@ class LatexOutput(OutputFormatPlugin):
                 "\\usepackage[OT4]{{fontenc}}\n"
                 "\\usepackage[{languages}]{{babel}}\n"
                 "\\usepackage[pdfauthor={{{authors}}},pdftitle={{{title}}}]{{hyperref}}\n"
-                "\\usepackage{{graphicx,hyperref,lettrine}}\n"
+                "\\usepackage[normalem]{{ulem}}\n"
+                "\\usepackage{{graphicx,lettrine}}\n"
                 "\n"
             ).format(
                 vimlanguage=languages[0][0],
