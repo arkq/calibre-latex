@@ -439,7 +439,7 @@ class LatexOutput(OutputFormatPlugin):
         content = re.sub(r'\n\n( \\\\\*\n)+', r'\n\n', content)
 
         # normalize white characters (tabs, spaces, multiple newlines)
-        content = re.sub(r'[ \t]+', r' ', content)
+        content = re.sub(r'^ ', r'', re.sub(r'[ \t]+', r' ', content), flags=re.M)
         content = re.sub(r'\s*\n\s*\n\s*\n', r'\n\n', content)
 
         if self.opts.pretty_print:
