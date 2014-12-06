@@ -237,6 +237,17 @@ class RecodeCallbackH3(RecodeCallbackBase):
         return "}"
 
 
+class RecodeCallbackH4(RecodeCallbackBase):
+
+    tag = XHTML('h4')
+
+    def get_begin(self, element):
+        return "\\subsection{"
+
+    def get_end(self, element):
+        return "}"
+
+
 class RecodeCallbackI(RecodeCallbackBase):
 
     tag = XHTML('i')
@@ -246,6 +257,28 @@ class RecodeCallbackI(RecodeCallbackBase):
 
     def get_end(self, element):
         return "}"
+
+
+class RecodeCallbackLi(RecodeCallbackBase):
+
+    tag = XHTML('li')
+
+    def get_begin(self, element):
+        return "\n\\item "
+
+    def get_end(self, element):
+        return "\n"
+
+
+class RecodeCallbackOl(RecodeCallbackBase):
+
+    tag = XHTML('ol')
+
+    def get_begin(self, element):
+        return "\n\\begin{enumerate}\n"
+
+    def get_end(self, element):
+        return "\n\\end{enumerate}\n"
 
 
 class RecodeCallbackP(RecodeCallbackBase):
@@ -285,6 +318,17 @@ class RecodeCallbackU(RecodeCallbackBase):
 
     def get_end(self, element):
         return "}"
+
+
+class RecodeCallbackUl(RecodeCallbackBase):
+
+    tag = XHTML('ul')
+
+    def get_begin(self, element):
+        return "\n\\begin{itemize}\n"
+
+    def get_end(self, element):
+        return "\n\\end{itemize}\n"
 
 
 class LatexOutput(OutputFormatPlugin):
