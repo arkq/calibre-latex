@@ -378,6 +378,32 @@ class RecodeCallbackSpan(RecodeCallbackBase):
         return "}" * self.pop()
 
 
+class RecodeCallbackSub(RecodeCallbackBase):
+
+    tag = XHTML('sub')
+
+    def get_begin(self, element):
+        # NOTE: TeX does not provide subscript command for text environment.
+        #       This "lack" of functionality is reasonable, because usage of
+        #       a subscript outside the math scope seems to be wrong anyway.
+        self.log.info("using math-mode subscript")
+        return "$_{"
+
+    def get_end(self, element):
+        return "}$"
+
+
+class RecodeCallbackSup(RecodeCallbackBase):
+
+    tag = XHTML('sup')
+
+    def get_begin(self, element):
+        return "\\textsuperscript{"
+
+    def get_end(self, element):
+        return "}"
+
+
 class RecodeCallbackStrong(RecodeCallbackBase):
 
     tag = XHTML('strong')
