@@ -70,28 +70,42 @@ class RecodeCallbackBase:
         """Pop data from the internal stack storage."""
         return self.datastack.pop()
 
+    @classmethod
+    def get_begin(cls, element):
+        return ""
+
+    @classmethod
+    def get_end(cls, element):
+        return ""
+
+    @classmethod
+    def get_text(cls, element):
+        return cls.sanitize(element.text or "")
+
+    @classmethod
+    def get_tail(cls, element):
+        return cls.sanitize(element.tail or "")
+
+    @staticmethod
+    def sanitize(text):
+        """
+        Return the given text with sanitized TeX special characters.
+
+        There is ten characters which have special meaning in the TeX
+        document, plus a newline which controls document structure.
+        The list of all of them:
+        &, %, $, #, _, {, }, ~, ^, backslash and newline
+        """
+        text = re.sub(r'\\', r'\\textbackslash{}', text)
+        text = re.sub(r'\^', r'\\textasciicircum{}', text)
+        text = re.sub(r'~', r'\\textasciitilde{}', text)
+        text = re.sub(r'[&%$#_{}]', r'\\\g<0>', text)
+        return re.sub(r'[\r\n]+', r' ', text)
+
     @staticmethod
     def get_classes(element):
         """Get classes set attached to the given element."""
         return set(element.attrib.get('class', "").split())
-
-    @staticmethod
-    def get_begin(element):
-        return ""
-
-    @staticmethod
-    def get_end(element):
-        return ""
-
-    @staticmethod
-    def get_text(element):
-        # sanitize visually formated input text data
-        return re.sub(r'[\r\n]+', r' ', element.text or "")
-
-    @staticmethod
-    def get_tail(element):
-        # sanitize visually formated input text data
-        return re.sub(r'[\r\n]+', r' ', element.tail or "")
 
     @staticmethod
     def get_class_style(classes):
