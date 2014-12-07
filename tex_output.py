@@ -85,11 +85,13 @@ class RecodeCallbackBase:
 
     @staticmethod
     def get_text(element):
-        return element.text or ""
+        # sanitize visually formated input text data
+        return re.sub(r'[\r\n]+', r' ', element.text or "")
 
     @staticmethod
     def get_tail(element):
-        return element.tail or ""
+        # sanitize visually formated input text data
+        return re.sub(r'[\r\n]+', r' ', element.tail or "")
 
     @staticmethod
     def get_class_style(classes):
@@ -167,8 +169,7 @@ class RecodeCallbackBlockquote(RecodeCallbackBase):
         return "\n\\begin{quotation}\n"
 
     def get_end(self, element):
-        # blockquote should act like paragraph, hence trailing newline
-        return "\n\\end{quotation}\n\n"
+        return "\n\\end{quotation}\n"
 
 
 class RecodeCallbackBr(RecodeCallbackBase):
@@ -201,6 +202,17 @@ class RecodeCallbackDiv(RecodeCallbackBase):
         return "}" * self.pop() + "\n"
 
 
+class RecodeCallbackEm(RecodeCallbackBase):
+
+    tag = XHTML('em')
+
+    def get_begin(self, element):
+        return self.get_class_style({"italic"})[0]
+
+    def get_end(self, element):
+        return "}"
+
+
 class RecodeCallbackH1(RecodeCallbackBase):
 
     tag = XHTML('h1')
@@ -209,10 +221,10 @@ class RecodeCallbackH1(RecodeCallbackBase):
         # NOTE: To be honest, we do not know if given book/article has any
         #       "parts" in it. None the less, the lowest section of a TeX
         #       document structure is a part.
-        return "\\part{"
+        return "\n\\part{"
 
     def get_end(self, element):
-        return "}"
+        return "}\n"
 
 
 class RecodeCallbackH2(RecodeCallbackBase):
@@ -220,10 +232,10 @@ class RecodeCallbackH2(RecodeCallbackBase):
     tag = XHTML('h2')
 
     def get_begin(self, element):
-        return "\\chapter{"
+        return "\n\\chapter{"
 
     def get_end(self, element):
-        return "}"
+        return "}\n"
 
 
 class RecodeCallbackH3(RecodeCallbackBase):
@@ -231,10 +243,10 @@ class RecodeCallbackH3(RecodeCallbackBase):
     tag = XHTML('h3')
 
     def get_begin(self, element):
-        return "\\section{"
+        return "\n\\section{"
 
     def get_end(self, element):
-        return "}"
+        return "}\n"
 
 
 class RecodeCallbackH4(RecodeCallbackBase):
@@ -242,10 +254,19 @@ class RecodeCallbackH4(RecodeCallbackBase):
     tag = XHTML('h4')
 
     def get_begin(self, element):
-        return "\\subsection{"
+        return "\n\\subsection{"
 
     def get_end(self, element):
-        return "}"
+        return "}\n"
+
+
+class RecodeCallbackHr(RecodeCallbackBase):
+
+    tag = XHTML('hr')
+
+    def get_end(self, element):
+        # in the HTML the HR tag is defined as a thematic break
+        return "\n\n\\bigskip\n\\hrule\n\\bigskip\n\n"
 
 
 class RecodeCallbackI(RecodeCallbackBase):
@@ -285,6 +306,9 @@ class RecodeCallbackP(RecodeCallbackBase):
 
     tag = XHTML('p')
 
+    def get_begin(self, element):
+        return "\n\n"
+
     def get_end(self, element):
         return "\n\n"
 
@@ -307,6 +331,17 @@ class RecodeCallbackSpan(RecodeCallbackBase):
 
     def get_end(self, element):
         return "}" * self.pop()
+
+
+class RecodeCallbackStrong(RecodeCallbackBase):
+
+    tag = XHTML('strong')
+
+    def get_begin(self, element):
+        return self.get_class_style({"bold"})[0]
+
+    def get_end(self, element):
+        return "}"
 
 
 class RecodeCallbackU(RecodeCallbackBase):
@@ -484,7 +519,7 @@ class LatexOutput(OutputFormatPlugin):
 
         # normalize white characters (tabs, spaces, multiple newlines)
         content = re.sub(r'^ ', r'', re.sub(r'[ \t]+', r' ', content), flags=re.M)
-        content = re.sub(r'\s*\n\s*\n\s*\n', r'\n\n', content)
+        content = re.sub(r'\s*\n\s*\n\s*\n', r'\n\n', content.strip()) + "\n"
 
         if self.opts.pretty_print:
             content = self.latex_pretty_print(content, length=self.opts.max_line_length)
@@ -509,7 +544,7 @@ class LatexOutput(OutputFormatPlugin):
                 lines.append(line[:pos].strip())
                 line = line[pos:]
             lines.append(line)
-        return "\n".join(lines)
+        return "\n".join(lines) + "\n"
 
     @staticmethod
     def latex_convert_languages(languages):
@@ -517,7 +552,8 @@ class LatexOutput(OutputFormatPlugin):
             'eng': ('en', 'eng', 'english'),
             'pol': ('pl', 'pol', 'polish'),
         }
-        languages = list(map(lambda x: mapping[x], languages))
+        languages = map(lambda x: mapping.get(x), languages)
+        languages = tuple(filter(None, languages))
         if languages:
             return languages
-        return mapping['eng']
+        return (mapping['eng'],)
