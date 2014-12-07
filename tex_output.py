@@ -176,7 +176,7 @@ class RecodeCallbackBr(RecodeCallbackBase):
 
     tag = XHTML('br')
 
-    def get_end(self, element):
+    def get_begin(self, element):
         # add extra space prefix for readability's sake
         return " \\\\*\n"
 
@@ -211,6 +211,28 @@ class RecodeCallbackEm(RecodeCallbackBase):
 
     def get_end(self, element):
         return "}"
+
+
+class RecodeCallbackFigcaption(RecodeCallbackBase):
+
+    tag = XHTML('figcaption')
+
+    def get_begin(self, element):
+        return "\n\\caption{"
+
+    def get_end(self, element):
+        return "}\n"
+
+
+class RecodeCallbackFigure(RecodeCallbackBase):
+
+    tag = XHTML('figure')
+
+    def get_begin(self, element):
+        return "\n\\begin{figure}[h]\n\\centering\n"
+
+    def get_end(self, element):
+        return "\n\\end{figure}\n"
 
 
 class RecodeCallbackH1(RecodeCallbackBase):
@@ -264,7 +286,7 @@ class RecodeCallbackHr(RecodeCallbackBase):
 
     tag = XHTML('hr')
 
-    def get_end(self, element):
+    def get_begin(self, element):
         # in the HTML the HR tag is defined as a thematic break
         return "\n\n\\bigskip\n\\hrule\n\\bigskip\n\n"
 
@@ -278,6 +300,15 @@ class RecodeCallbackI(RecodeCallbackBase):
 
     def get_end(self, element):
         return "}"
+
+
+class RecodeCallbackImg(RecodeCallbackBase):
+
+    tag = XHTML('img')
+
+    def get_begin(self, element):
+        src = element.attrib.get('src', "")
+        return "\n\\includegraphics[width=0.8\\textwidth]{" + src + "}\n"
 
 
 class RecodeCallbackLi(RecodeCallbackBase):
