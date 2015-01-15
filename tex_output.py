@@ -7,7 +7,9 @@ __docformat__ = 'restructuredtext en'
 import os
 import re
 from lxml import etree
+from urllib import unquote
 
+from calibre import CurrentDir
 from calibre.customize.conversion import OptionRecommendation
 from calibre.customize.conversion import OutputFormatPlugin
 from calibre.ebooks.oeb.base import XHTML
@@ -23,10 +25,10 @@ class RecodeCallbackRegistry:
     def register(cls, callback):
         cls.__registry[callback.tag] = callback
 
-    def __init__(self, logger):
+    def __init__(self, converter):
         # local registry of callback instances
         self.registry = {
-            tag: callback(logger)
+            tag: callback(converter, converter.log)
             for tag, callback in self.__registry.items()
         }
 
@@ -45,7 +47,8 @@ class RecodeCallbackBase:
     #       it as a callback base example
     tag = XHTML('body')
 
-    def __init__(self, logger):
+    def __init__(self, converter, logger):
+        self.converter = converter
         self.log = logger
 
         # reference counter used for tracking tags nesting
@@ -321,7 +324,10 @@ class RecodeCallbackImg(RecodeCallbackBase):
     tag = XHTML('img')
 
     def get_begin(self, element):
+        # try to get image source from the converter images mapping, otherwise
+        # use `src` attribute itself (e.g. external resource)
         src = element.attrib.get('src', "")
+        src = self.converter.images.get(src) or unquote(src)
         return "\n\\includegraphics[width=0.8\\textwidth]{" + src + "}\n"
 
 
@@ -476,7 +482,15 @@ class LatexOutput(OutputFormatPlugin):
 
     def convert(self, oeb, output_path, input_plugin, opts, log):
         self.oeb, self.opts, self.log = oeb, opts, log
-        self.callbacks = RecodeCallbackRegistry(log)
+        self.callbacks = RecodeCallbackRegistry(self)
+
+        # set the base-name for this conversion (e.g. directory prefix)
+        self.basename = os.path.splitext(os.path.basename(output_path))[0]
+
+        # create output directory if needed
+        output_dir = os.path.dirname(output_path)
+        if not os.path.exists(output_dir) and output_dir:
+            os.makedirs(output_dir)
 
         # try to get basic metadata of this document
         authors = map(lambda x: x.value, oeb.metadata.author)
@@ -487,10 +501,8 @@ class LatexOutput(OutputFormatPlugin):
         # get language abbreviations and full names needed by latex
         languages = self.latex_convert_languages(languages)
 
-        # create output directories if needed
-        output_dir = os.path.dirname(output_path)
-        if not os.path.exists(output_dir) and output_dir:
-            os.makedirs(output_dir)
+        # extract embedded images to the images directory
+        self.images = self.latex_extract_images(output_dir)
 
         # open output file for content writing
         with open(output_path, 'w') as f:
@@ -596,6 +608,35 @@ class LatexOutput(OutputFormatPlugin):
             content = self.latex_pretty_print(content, length=self.opts.max_line_length)
 
         return content
+
+    def latex_extract_images(self, directory):
+
+        images = filter(lambda x: x.media_type.startswith('image'), self.oeb.manifest)
+        if not images:
+            return {}
+
+        # gather image ID mappings for further references
+        reference = self.oeb.spine.items[0]
+        references = {}
+
+        with CurrentDir(directory):
+
+            # create output directory if needed
+            images_dir = self.latex_images_directory()
+            if not os.path.exists(images_dir):
+                os.makedirs(images_dir)
+
+            for image in images:
+                image_name = re.sub(r'[\\/]', r'_', image.id)
+                image_path = os.path.join(images_dir, image_name)
+                references[reference.relhref(image.href)] = image_path
+                with open(image_path, 'wb') as f:
+                    f.write(image.data)
+
+        return references
+
+    def latex_images_directory(self):
+        return self.basename + "-images"
 
     @staticmethod
     def latex_pretty_print(content, length=78):
