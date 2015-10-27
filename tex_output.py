@@ -6,8 +6,11 @@ __docformat__ = 'restructuredtext en'
 
 import os
 import re
-from lxml import etree
+from collections import namedtuple
+from datetime import datetime
 from urllib import unquote
+
+from lxml import etree
 
 from calibre import CurrentDir
 from calibre.customize.conversion import OptionRecommendation
@@ -492,14 +495,26 @@ class LatexOutput(OutputFormatPlugin):
         if not os.path.exists(output_dir) and output_dir:
             os.makedirs(output_dir)
 
-        # try to get basic metadata of this document
+        # NOTE: Calibre implementation of meta-data container is based on
+        #       the list-based default dictionary. However, most of these
+        #       fields will never have more than one value.
+        titles = map(lambda x: x.value, oeb.metadata.title)
         authors = map(lambda x: x.value, oeb.metadata.author)
         creators = map(lambda x: x.value, oeb.metadata.creator)
-        titles = map(lambda x: x.value, oeb.metadata.title)
-        languages = map(lambda x: x.value, oeb.metadata.language)
+        publishers = map(lambda x: x.value, oeb.metadata.publisher)
+        descriptions = map(lambda x: x.value, oeb.metadata.description)
+        subjects = map(lambda x: x.value, oeb.metadata.subject)
+        ratings = map(lambda x: x.value, oeb.metadata.rating)
 
-        # get language abbreviations and full names needed by latex
-        languages = self.latex_convert_languages(languages)
+        languages = self.oeb_metadata_get_languages()
+        identifiers = self.oeb_metadata_get_identifiers()
+        date = self.oeb_metadata_get_date()
+
+        # extract ISBN number(s) from the identifier list
+        isbns = map(lambda x: x.value, filter(
+            lambda x: x.type == "ISBN",
+            identifiers,
+        ))
 
         # extract embedded images to the images directory
         self.images = self.latex_extract_images(output_dir)
@@ -525,25 +540,40 @@ class LatexOutput(OutputFormatPlugin):
                 title=" | ".join(titles),
             ))
 
-            # write custom command definitions and overrides
+            # write custom command definitions
             f.write((
-                "\\newcommand{\\cover}[1]{\\def\\cover{#1}} % custom variable for cover image\n"
-                "\\newcommand{\\degree}{\\textsuperscript{o}}\n"
+                "% custom commands for extra document constants\n"
+                "\\newcommand{\\covergraphic}[1]{\\def\\covergraphic{#1}}\n"
+                "\\newcommand{\\synopsis}[1]{\\def\\synopsis{#1}}\n"
+                "\\newcommand{\\publisher}[1]{\\def\\publisher{#1}}\n"
+                "\\newcommand{\\subjects}[1]{\\def\\subjects{#1}}\n"
+                "\\newcommand{\\rating}[1]{\\def\\rating{#1}}\n"
+                "\\newcommand{\\ISBN}[1]{\\def\\ISBN{#1}}\n"
                 "\n"
             ))
 
             # write document header constants
             f.write((
-                "\\cover{{{cover}}}\n"
+                "\\covergraphic{{{covergraphic}}}\n"
                 "\\author{{{authors}}}\n"
                 "\\title{{{title}}}\n"
+                "\\synopsis{{{synopsis}}}\n"
+                "\\subjects{{{subjects}}}\n"
                 "\\date{{{date}}}\n"
+                "\\rating{{{rating}}}\n"
+                "\\publisher{{{publishers}}}\n"
+                "\\ISBN{{{isbn}}}\n"
                 "\n"
             ).format(
-                cover="",
+                covergraphic="{}-cover.jpg".format(self.basename),
                 authors=" & ".join(authors or creators),
+                publishers=" & ".join(publishers),
                 title=" | ".join(titles),
-                date="",
+                synopsis=self.latex_pretty_print("\n\n".join(descriptions)).strip(),
+                subjects=self.latex_pretty_print(", ".join(subjects)).strip(),
+                date=date.strftime("%d %B %Y") if date else "",
+                rating=", ".join(ratings),
+                isbn=", ".join(isbns),
             ))
 
             # write document content
@@ -560,6 +590,32 @@ class LatexOutput(OutputFormatPlugin):
                 tocpage=self.latex_format_tocpage(),
                 content=self.latex_format_content(),
             ))
+
+    def oeb_metadata_get_languages(self):
+        # get language abbreviations and full names needed by latex
+        return self.latex_convert_languages(
+            map(lambda x: x.value, self.oeb.metadata.language)
+        )
+
+    def oeb_metadata_get_identifiers(self):
+
+        # identifier container for the sake of interface simplicity
+        Identifier = namedtuple('Identifier', ('type', 'value'))
+
+        return map(
+            lambda x: Identifier(
+                type=x.attrib.get('{http://www.idpf.org/2007/opf}scheme').upper(),
+                value=x.value,
+            ),
+            self.oeb.metadata.identifier
+        )
+
+    def oeb_metadata_get_date(self):
+        if self.oeb.metadata.date:
+            return datetime.strptime(
+                self.oeb.metadata.date[0].value[:19],
+                '%Y-%m-%dT%H:%M:%S',
+            )
 
     def latex_format_titlepage(self):
         if not self.opts.latex_title_page:
