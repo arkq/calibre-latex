@@ -1,0 +1,164 @@
+#!/usr/bin/python
+
+import re
+import shutil
+import subprocess
+from optparse import OptionParser
+from os import path
+from os import unlink
+from sys import stderr
+
+
+class TexMetadataReader:
+    """
+    TeX document metadata extractor.
+    """
+
+    re_documentclass = re.compile(r'\\documentclass.*{(.*)}')
+    re_author = re.compile(r'\\author{(.*)}')
+    re_cover = re.compile(r'\\covergraphic{(.*)}')
+    re_date = re.compile(r'\\date{(.*)}')
+
+    def __init__(self, file):
+        with open(file) as f:
+            self.content = f.readlines()
+
+    def get_document_class(self):
+        for l in self.content:
+            match = self.re_documentclass.match(l)
+            if match is not None:
+                return match.group(1)
+
+    def get_author(self):
+        for l in self.content:
+            match = self.re_author.match(l)
+            if match is not None:
+                return match.group(1)
+
+    def get_cover(self):
+        for l in self.content:
+            match = self.re_cover.match(l)
+            if match is not None:
+                return match.group(1)
+
+    def get_date(self):
+        for l in self.content:
+            match = self.re_date.match(l)
+            if match is not None:
+                return match.group(1)
+
+
+optp = OptionParser(
+    usage="usage: %prog [options] <document>",
+    description="(La)TeX document converter for Kindle-compatible devices.",
+)
+optp.add_option(
+    "--engine",
+    help="use given TeX engine for TeX to HTML conversion",
+    choices=("latex", "lualatex", "xelatex"),
+    default="latex",
+    action="store",
+    type="choice",
+    dest="engine",
+)
+optp.add_option(
+    "--keep-files",
+    help="keep intermediary files created during the TeX file processing",
+    action="store_true",
+    dest="keep_files",
+)
+
+
+# make sure, that the required command is available
+def assert_required_command(cmd):
+    if not shutil.which(cmd):
+        stderr.write("{}: error: missing required command: {}\n".format(
+            optp.get_prog_name(),
+            cmd,
+        ))
+        optp.exit()
+
+
+# wrapper for subprocess call method, which logs called command
+def call_command(*args):
+    stderr.write("{}: call: {}\n".format(
+        optp.get_prog_name(),
+        " ".join(args),
+    ))
+    return subprocess.call(args)
+
+
+opts, args = optp.parse_args()
+
+try:
+    document_tex = args[0]
+    document_base = path.splitext(document_tex)[0]
+except IndexError:
+    optp.print_help()
+    optp.exit()
+
+assert_required_command("mk4ht")
+assert_required_command("ebook-convert")
+
+try:
+    metadata = TexMetadataReader(document_tex)
+except (FileNotFoundError, PermissionError) as e:
+    optp.print_usage()
+    stderr.write("{}: error: {}: {}\n".format(
+        optp.get_prog_name(),
+        e.strerror,
+        e.filename,
+    ))
+    optp.exit()
+
+# process TeX to HTML conversion
+call_command(
+    "mk4ht",
+    "ht{}".format(opts.engine),
+    document_tex,
+    "xhtml,pmathml,charset=utf8",
+)
+
+# clean mess left by the mk4ht command
+if not opts.keep_files:
+    extensions = (
+        "4ct", "4tc", "aux", "css", "dvi", "idv", "lg", "log",
+        "out", "out.ps", "tmp", "toc", "xdv", "xref",
+    )
+    for tmp in map(lambda x: document_base + "." + x, extensions):
+        if path.exists(tmp):
+            unlink(tmp)
+
+# Convert previously generated HTML document(s) into the MOBI format using
+# Calibre conversion suite. This conversion is optimized for Kindle device.
+
+convert_options = [
+    "--output-profile=kindle",
+    "--no-inline-toc",
+    # "--share-not-sync",
+]
+
+documentclass = metadata.get_document_class()
+if documentclass == "article":
+    convert_options.append('--chapter=//*[@class="sectionHead"]')
+    # extra_options.append('--level1-toc=//h:h3[@class="sectionHead"]')
+    # extra_options.append('--level2-toc=//h:h4[@class="subsectionHead"]')
+if documentclass == "book":
+    convert_options.append('--chapter=//*[re:test(@class,"partHead|chapterHead")]')
+    # extra_options.append('--level1-toc=//h:h2[@class="chapterHead"]')
+    # extra_options.append('--level2-toc=//h:h3[@class="sectionHead"]')
+
+author = metadata.get_author()
+if author:
+    convert_options.append("--authors=" + author)
+
+cover = metadata.get_cover()
+if cover:
+    convert_options.append("--cover=" + cover)
+
+call_command(
+    "ebook-convert",
+    document_base + "." + "html",
+    document_base + "." + "mobi",
+    *convert_options
+)
