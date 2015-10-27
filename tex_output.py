@@ -622,20 +622,20 @@ class LatexOutput(OutputFormatPlugin):
         with CurrentDir(directory):
 
             # create output directory if needed
-            images_dir = self.latex_images_directory()
-            if not os.path.exists(images_dir):
-                os.makedirs(images_dir)
+            image_dir = self.latex_get_image_directory()
+            if not os.path.exists(image_dir):
+                os.makedirs(image_dir)
 
             for image in images:
                 image_name = re.sub(r'[\\/]', r'_', image.id)
-                image_path = os.path.join(images_dir, image_name)
+                image_path = os.path.join(image_dir, image_name)
                 references[reference.relhref(image.href)] = image_path
                 with open(image_path, 'wb') as f:
                     f.write(image.data)
 
         return references
 
-    def latex_images_directory(self):
+    def latex_get_image_directory(self):
         return self.basename + "-images"
 
     @staticmethod

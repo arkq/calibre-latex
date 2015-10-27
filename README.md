@@ -11,8 +11,8 @@ Simply put, this tool is not some magic wizard which will do all the work.
 It should help a lot, though.
 
 
-Instalation
------------
+Installation
+------------
 
 First of all make sure, that you've got Calibre installed. If not, I don't
 know what are you doing here. The only reasonable answer to this question is,
