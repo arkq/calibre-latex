@@ -79,6 +79,26 @@ def assert_required_command(cmd):
         optp.exit()
 
 
+# mk4ht might not handle white-spaces in the file name
+def assert_no_whitespace(name):
+    if name.find(" ") != -1:
+        stderr.write(
+            "{prog}: warning: white-space found: {filename}\n"
+            "\n"
+            "NOTE: It is very unlikely that your version of mk4h will handle white-spaces\n"
+            "      in the file name - in general it does not handle them. However, if you\n"
+            "      feel lucky you may try to proceed and see what will happen. Otherwise,\n"
+            "      try to rename your document, e.g.:\n"
+            "      rename ' ' '_' '{filename}'\n"
+            "\n".format(
+                prog=optp.get_prog_name(),
+                filename=name,
+            )
+        )
+        if input("Do you want to continue? [y/N] ").upper() != "Y":
+            optp.exit()
+
+
 # wrapper for subprocess call method, which logs called command
 def call_command(*args):
     stderr.write("{}: call: {}\n".format(
@@ -110,6 +130,8 @@ except (FileNotFoundError, PermissionError) as e:
         e.filename,
     ))
     optp.exit()
+
+assert_no_whitespace(document_tex)
 
 # process TeX to HTML conversion
 call_command(
