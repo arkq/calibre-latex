@@ -448,7 +448,7 @@ class RecodeCallbackUl(RecodeCallbackBase):
 
 class LatexOutput(OutputFormatPlugin):
 
-    name = 'Latex Output'
+    name = 'TEX Output'
     author = 'Arkadiusz Bokowy'
     file_type = 'tex'
 
