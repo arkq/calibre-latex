@@ -15,38 +15,58 @@ class TexMetadataReader:
     TeX document metadata extractor.
     """
 
-    re_documentclass = re.compile(r'\\documentclass.*{(.*)}')
-    re_author = re.compile(r'\\author{(.*)}')
-    re_cover = re.compile(r'\\covergraphic{(.*)}')
-    re_date = re.compile(r'\\date{(.*)}')
+    re_documentclass = re.compile(r'\\documentclass.*{(.+)}')
+    re_languages = re.compile(r'\\usepackage\[(.*)\]{babel}')
+    re_author = re.compile(r'\\author{(.+)}')
+    re_cover = re.compile(r'\\covergraphic{(.+)}')
+    re_date = re.compile(r'\\date{(.+)}')
+    re_publisher = re.compile(r'\\publisher{(.+)}')
+    re_isbn = re.compile(r'\\ISBN{(\d+)}')
 
     def __init__(self, file):
         with open(file) as f:
             self.content = f.readlines()
 
-    def get_document_class(self):
+    def _get_first_match(self, re_match):
         for l in self.content:
-            match = self.re_documentclass.match(l)
+            match = re_match.match(l)
             if match is not None:
-                return match.group(1)
+                return match
+
+    def get_document_class(self):
+        match = self._get_first_match(self.re_documentclass)
+        if match is not None:
+            return match.group(1)
+
+    def get_languages(self):
+        match = self._get_first_match(self.re_languages)
+        if match is not None:
+            return [x.strip() for x in match.group(1).split(",")]
 
     def get_author(self):
-        for l in self.content:
-            match = self.re_author.match(l)
-            if match is not None:
-                return match.group(1)
+        match = self._get_first_match(self.re_author)
+        if match is not None:
+            return match.group(1)
 
     def get_cover(self):
-        for l in self.content:
-            match = self.re_cover.match(l)
-            if match is not None:
-                return match.group(1)
+        match = self._get_first_match(self.re_cover)
+        if match is not None:
+            return match.group(1)
 
     def get_date(self):
-        for l in self.content:
-            match = self.re_date.match(l)
-            if match is not None:
-                return match.group(1)
+        match = self._get_first_match(self.re_date)
+        if match is not None:
+            return match.group(1)
+
+    def get_publisher(self):
+        match = self._get_first_match(self.re_publisher)
+        if match is not None:
+            return match.group(1)
+
+    def get_isbn(self):
+        match = self._get_first_match(self.re_isbn)
+        if match is not None:
+            return match.group(1)
 
 
 optp = OptionParser(
@@ -151,7 +171,7 @@ call_command(
 # clean mess left by the mk4ht command
 if not opts.keep_files:
     extensions = (
-        "4ct", "4tc", "aux", "css", "dvi", "idv", "lg", "log",
+        "4ct", "4tc", "aux", "css", "dvi", "ent", "idv", "lg", "log",
         "out", "out.ps", "tmp", "toc", "xdv", "xref",
     )
     for tmp in map(lambda x: document_base + "." + x, extensions):
@@ -177,13 +197,21 @@ if documentclass == "book":
     # extra_options.append('--level1-toc=//h:h2[@class="chapterHead"]')
     # extra_options.append('--level2-toc=//h:h3[@class="sectionHead"]')
 
+languages = metadata.get_languages()
+if languages:
+    convert_options.append("--language=" + languages[0])
 author = metadata.get_author()
 if author:
     convert_options.append("--authors=" + author)
-
 cover = metadata.get_cover()
 if cover:
     convert_options.append("--cover=" + cover)
+publisher = metadata.get_publisher()
+if publisher:
+    convert_options.append("--publisher=" + publisher)
+isbn = metadata.get_isbn()
+if isbn:
+    convert_options.append("--isbn=" + isbn)
 
 call_command(
     "ebook-convert",
