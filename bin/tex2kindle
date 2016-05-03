@@ -31,6 +31,9 @@ class TexMetadataReader:
             if match is not None:
                 return match
 
+    def _unescape(self, text):
+        return re.sub(r"\\(.)", r"\1", text)
+
     def get_document_class(self):
         match = self._get_first_match(self.re_documentclass)
         if match is not None:
@@ -44,22 +47,22 @@ class TexMetadataReader:
     def get_author(self):
         match = self._get_first_match(self.re_author)
         if match is not None:
-            return match.group(1)
+            return self._unescape(match.group(1))
 
     def get_cover(self):
         match = self._get_first_match(self.re_cover)
         if match is not None:
-            return match.group(1)
+            return self._unescape(match.group(1))
 
     def get_date(self):
         match = self._get_first_match(self.re_date)
         if match is not None:
-            return match.group(1)
+            return self._unescape(match.group(1))
 
     def get_publisher(self):
         match = self._get_first_match(self.re_publisher)
         if match is not None:
-            return match.group(1)
+            return self._unescape(match.group(1))
 
     def get_isbn(self):
         match = self._get_first_match(self.re_isbn)
