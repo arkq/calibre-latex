@@ -11,17 +11,15 @@ from sys import stderr
 
 
 class TexMetadataReader:
-    """
-    TeX document metadata extractor.
-    """
+    """TeX document metadata extractor."""
 
-    re_documentclass = re.compile(r'\\documentclass.*{(.+)}')
-    re_languages = re.compile(r'\\usepackage\[(.*)\]{babel}')
-    re_author = re.compile(r'\\author{(.+)}')
-    re_cover = re.compile(r'\\covergraphic{(.+)}')
-    re_date = re.compile(r'\\date{(.+)}')
-    re_publisher = re.compile(r'\\publisher{(.+)}')
-    re_isbn = re.compile(r'\\ISBN{(\d+)}')
+    re_documentclass = re.compile(r"\\documentclass.*{(.+)}")
+    re_languages = re.compile(r"\\usepackage\[(.*)\]{babel}")
+    re_author = re.compile(r"\\author{(.+)}")
+    re_cover = re.compile(r"\\covergraphic{(.+)}")
+    re_date = re.compile(r"\\date{(.+)}")
+    re_publisher = re.compile(r"\\publisher{(.+)}")
+    re_isbn = re.compile(r"\\ISBN{(\d+)}")
 
     def __init__(self, file):
         with open(file) as f:
