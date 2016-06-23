@@ -18,10 +18,16 @@ First of all make sure, that you've got Calibre installed. If not, I don't
 know what are you doing here. The only reasonable answer to this question is,
 that you are literature lover, and want to read everything and everywhere.
 If so, you should definitely get a fresh copy of Calibre, just follow this
-[link](http://calibre-ebook.com/download).
+[link](http://calibre-ebook.com/download) or use your favorite Linux package
+manager, e.g. `apt-get install calibre`.
+
+The installation process depends on how Calibre was installed. Please, follow
+the instruction from the appropriate subsection.
+
+##### 1) Calibre was installed from package manager (DEB, RPM, etc.)
 
 Assuming, that you are running 64 bit version of Linux system, you have to
-copy this output plugin ([tex_output.py](https://raw.githubusercontent.com/Arkq/calibre-latex/master/tex_output.py))
+copy this output plugin ([tex\_output.py](https://github.com/Arkq/calibre-latex/raw/master/src/tex_output.py))
 in the following location (do not change the file name):
 
 	/usr/lib64/calibre/calibre/ebooks/conversion/plugins/
@@ -34,7 +40,28 @@ Afterwards, get your best text editor and add the following lines into the
 
 or simply run commands as follows:
 
+	PLUGIN=/usr/lib64/calibre/calibre/ebooks/conversion/plugins/tex_output.py
 	PLUGINREGISTER=/usr/lib64/calibre/calibre/customize/builtins.py
+	wget -O $PLUGIN https://github.com/Arkq/calibre-latex/raw/master/src/tex_output.py
+	echo "from calibre.ebooks.conversion.plugins.tex_output import LatexOutput" >>$PLUGINREGISTER
+	echo "plugins += [LatexOutput]" >>$PLUGINREGISTER
+
+##### 2) Calibre was installed from website installer
+
+During the automatic installation process, Calibre was most likely installed
+in the location `/opt/calibre/`. The next part of this instruction relies on
+this assumption. If your copy of Calibre is installed in some other location,
+please modify the ROOT variable accordingly.
+
+Run commands as follows:
+
+	ROOT=/opt/calibre
+	PLUGIN=$ROOT/lib/python2.7/site-packages/calibre/ebooks/conversion/plugins/tex_output.py
+	PLUGINREGISTER=$ROOT/lib/python2.7/site-packages/calibre/customize/builtins.py
+	TAG=$( $ROOT/calibre --version |python -c 'import re, sys; \
+		print("v" + ".".join((re.search("[\d\.]+", sys.stdin.read()).group(0).split(".") + ["0"])[:3]))' )
+	wget -O $PLUGIN https://github.com/Arkq/calibre-latex/raw/master/src/tex_output.py
+	wget -O $PLUGINREGISTER https://github.com/kovidgoyal/calibre/raw/$TAG/src/calibre/customize/builtins.py
 	echo "from calibre.ebooks.conversion.plugins.tex_output import LatexOutput" >>$PLUGINREGISTER
 	echo "plugins += [LatexOutput]" >>$PLUGINREGISTER
 
