@@ -164,6 +164,8 @@ class RecodeCallbackA(RecodeCallbackBase):
 
     def get_begin(self, element):
         href = element.attrib.get('href', "")
+        if element.text == href:
+            return "\\url{"
         return "\\href{" + href + "}{"
 
     def get_end(self, element):
