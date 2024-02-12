@@ -473,7 +473,7 @@ class LatexOutput(OutputFormatPlugin):
             name='latex_title_page',
             recommended_value=True,
             help=_(  # noqa
-                "Insert Latex default Title Page which will appear as a part "
+                "Insert LaTeX default Title Page which will appear as a part "
                 "of the main book content."
             ),
         ),
@@ -481,7 +481,7 @@ class LatexOutput(OutputFormatPlugin):
             name='latex_toc',
             recommended_value=False,
             help=_(  # noqa
-                "Insert Latex default Table of Contents which will appear "
+                "Insert LaTeX default Table of Contents which will appear "
                 "as a part of the main book content."
             ),
         ),
@@ -499,7 +499,13 @@ class LatexOutput(OutputFormatPlugin):
         ('pretty_print', True, OptionRecommendation.HIGH),
     ])
 
+    def gui_configuration_widget(self, *args, **kwargs):
+        """Return a configuration widget for this plugin."""
+        from calibre_plugins.texoutput.tex_output_gui import LatexOutputWidget
+        return LatexOutputWidget(*args, **kwargs)
+
     def convert(self, oeb, output_path, input_plugin, opts, log):
+        """Convert the given OEB book to the TEX format."""
         self.oeb, self.opts, self.log = oeb, opts, log
         self.callbacks = RecodeCallbackRegistry(self)
 
