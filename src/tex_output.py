@@ -1,14 +1,18 @@
-# -*- coding: utf-8 -*-
+# Copyright (c) 2014-2024 Arkadiusz Bokowy
+#
+# This file is a part of calibre-latex.
+#
+# This project is licensed under the terms of the MIT license.
 
 __license__ = 'MIT'
-__copyright__ = '2014, Arkadiusz Bokowy <arkadiusz.bokowy@gmail.com>'
+__copyright__ = '2014-2024, Arkadiusz Bokowy <arkadiusz.bokowy@gmail.com>'
 __docformat__ = 'restructuredtext en'
 
 import os
 import re
 from collections import namedtuple
 from datetime import datetime
-from urllib import unquote
+from urllib.parse import unquote
 
 from lxml import etree
 
@@ -19,45 +23,49 @@ from calibre.ebooks.oeb.base import XHTML
 from calibre.ebooks.oeb.base import XPath
 
 
+# Mapping of language abbreviations used in OEB files and appropriate values
+# for Vim spell checker and LaTeX babel package.
+LANGS = {
+    'eng': ('en', 'eng', 'english'),
+    'pol': ('pl', 'pol', 'polish'),
+}
+
+
 class RecodeCallbackRegistry:
 
-    # global registry of defined recode callbacks
-    __registry = {}
+    # Global register of defined recode callbacks.
+    __register = {}
 
-    @classmethod
-    def register(cls, callback):
-        cls.__registry[callback.tag] = callback
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if hasattr(cls, 'tag'):
+            RecodeCallbackRegistry.__register[cls.tag] = cls
 
     def __init__(self, converter):
-        # local registry of callback instances
-        self.registry = {
+        # Local register of callback instances.
+        self.register = {
             tag: callback(converter, converter.log)
-            for tag, callback in self.__registry.items()
+            for tag, callback in self.__register.items()
         }
 
     def get(self, tag):
-        return self.registry.get(tag)
+        return self.register.get(tag)
 
 
-class RecodeCallbackBase:
+class RecodeCallbackBody(RecodeCallbackRegistry):
 
-    class __metaclass__(type):
-        def __init__(cls, name, bases, attrs):
-            type.__init__(cls, name, bases, attrs)
-            RecodeCallbackRegistry.register(cls)
-
-    # NOTE: body is our first document structure tag, so it is safe to use
-    #       it as a callback base example
+    # NOTE: The `body` tag is our first document structure tag, so it is safe
+    #       to use it as a callback base example.
     tag = XHTML('body')
 
     def __init__(self, converter, logger):
         self.converter = converter
         self.log = logger
 
-        # reference counter used for tracking tags nesting
+        # Reference counter used for tracking tags nesting.
         self.refcount = 0
 
-        # internal stack for data stashing
+        # Internal stack for data stashing.
         self.datastack = []
 
     def start(self, element):
@@ -131,7 +139,7 @@ class RecodeCallbackBase:
             elif cls == 'underline':
                 functions.append("\\uline{")
 
-        # remove used (recognized) classes
+        # Remove used (recognized) classes.
         classes.difference_update((
             'bold', 'italic', 'underline',
         ))
@@ -141,7 +149,7 @@ class RecodeCallbackBase:
     def get_class_layout(classes):
         """
         Get layout functions. In the OEB file format layout may be encoded in
-        the class attribute, e.g. page-break.
+        the class attribute, e.g.: page-break.
 
         That method modifies input argument - used classes are removed.
         """
@@ -151,14 +159,14 @@ class RecodeCallbackBase:
             if cls == 'mbppagebreak':
                 functions.append("\\chapter*{")
 
-        # remove used (recognized) classes
+        # Remove used (recognized) classes.
         classes.difference_update((
             'mbppagebreak',
         ))
         return functions
 
 
-class RecodeCallbackA(RecodeCallbackBase):
+class RecodeCallbackA(RecodeCallbackBody):
 
     tag = XHTML('a')
 
@@ -172,7 +180,7 @@ class RecodeCallbackA(RecodeCallbackBase):
         return "}"
 
 
-class RecodeCallbackB(RecodeCallbackBase):
+class RecodeCallbackB(RecodeCallbackBody):
 
     tag = XHTML('b')
 
@@ -183,7 +191,7 @@ class RecodeCallbackB(RecodeCallbackBase):
         return "}"
 
 
-class RecodeCallbackBlockquote(RecodeCallbackBase):
+class RecodeCallbackBlockquote(RecodeCallbackBody):
 
     tag = XHTML('blockquote')
 
@@ -194,16 +202,16 @@ class RecodeCallbackBlockquote(RecodeCallbackBase):
         return "\n\\end{quotation}\n"
 
 
-class RecodeCallbackBr(RecodeCallbackBase):
+class RecodeCallbackBr(RecodeCallbackBody):
 
     tag = XHTML('br')
 
     def get_begin(self, element):
-        # add extra space prefix for readability's sake
+        # Add extra space prefix for readability's sake.
         return " \\\\*\n"
 
 
-class RecodeCallbackDiv(RecodeCallbackBase):
+class RecodeCallbackDiv(RecodeCallbackBody):
 
     tag = XHTML('div')
 
@@ -214,17 +222,17 @@ class RecodeCallbackDiv(RecodeCallbackBase):
         functions.extend(self.get_class_layout(classes))
         functions.extend(self.get_class_style(classes))
 
-        # save the number of used functions, so we will close them properly
+        # Save the number of used functions, so we will close them properly.
         self.push(len(functions))
 
         return "".join(functions)
 
     def get_end(self, element):
-        # hence div is a block tag, add a new line at the end
+        # Since `div` is a block tag, add a new line at the end.
         return "}" * self.pop() + "\n"
 
 
-class RecodeCallbackEm(RecodeCallbackBase):
+class RecodeCallbackEm(RecodeCallbackBody):
 
     tag = XHTML('em')
 
@@ -235,7 +243,7 @@ class RecodeCallbackEm(RecodeCallbackBase):
         return "}"
 
 
-class RecodeCallbackFigcaption(RecodeCallbackBase):
+class RecodeCallbackFigcaption(RecodeCallbackBody):
 
     tag = XHTML('figcaption')
 
@@ -246,7 +254,7 @@ class RecodeCallbackFigcaption(RecodeCallbackBase):
         return "}\n"
 
 
-class RecodeCallbackFigure(RecodeCallbackBase):
+class RecodeCallbackFigure(RecodeCallbackBody):
 
     tag = XHTML('figure')
 
@@ -257,7 +265,7 @@ class RecodeCallbackFigure(RecodeCallbackBase):
         return "\n\\end{figure}\n"
 
 
-class RecodeCallbackH1(RecodeCallbackBase):
+class RecodeCallbackH1(RecodeCallbackBody):
 
     tag = XHTML('h1')
 
@@ -271,7 +279,7 @@ class RecodeCallbackH1(RecodeCallbackBase):
         return "}\n"
 
 
-class RecodeCallbackH2(RecodeCallbackBase):
+class RecodeCallbackH2(RecodeCallbackBody):
 
     tag = XHTML('h2')
 
@@ -282,7 +290,7 @@ class RecodeCallbackH2(RecodeCallbackBase):
         return "}\n"
 
 
-class RecodeCallbackH3(RecodeCallbackBase):
+class RecodeCallbackH3(RecodeCallbackBody):
 
     tag = XHTML('h3')
 
@@ -293,7 +301,7 @@ class RecodeCallbackH3(RecodeCallbackBase):
         return "}\n"
 
 
-class RecodeCallbackH4(RecodeCallbackBase):
+class RecodeCallbackH4(RecodeCallbackBody):
 
     tag = XHTML('h4')
 
@@ -304,16 +312,16 @@ class RecodeCallbackH4(RecodeCallbackBase):
         return "}\n"
 
 
-class RecodeCallbackHr(RecodeCallbackBase):
+class RecodeCallbackHr(RecodeCallbackBody):
 
     tag = XHTML('hr')
 
     def get_begin(self, element):
-        # in the HTML the HR tag is defined as a thematic break
+        # In the HTML the HR tag is defined as a thematic break.
         return "\n\n\\bigskip\n\\hrule\n\\bigskip\n\n"
 
 
-class RecodeCallbackI(RecodeCallbackBase):
+class RecodeCallbackI(RecodeCallbackBody):
 
     tag = XHTML('i')
 
@@ -324,19 +332,19 @@ class RecodeCallbackI(RecodeCallbackBase):
         return "}"
 
 
-class RecodeCallbackImg(RecodeCallbackBase):
+class RecodeCallbackImg(RecodeCallbackBody):
 
     tag = XHTML('img')
 
     def get_begin(self, element):
-        # try to get image source from the converter images mapping, otherwise
-        # use `src` attribute itself (e.g. external resource)
+        # Try to get image source from the converter images mapping, otherwise
+        # use `src` attribute itself (e.g.: external resource).
         src = element.attrib.get('src', "")
         src = self.converter.images.get(src) or unquote(src)
         return "\n\\includegraphics[width=0.8\\textwidth]{" + src + "}\n"
 
 
-class RecodeCallbackLi(RecodeCallbackBase):
+class RecodeCallbackLi(RecodeCallbackBody):
 
     tag = XHTML('li')
 
@@ -347,7 +355,7 @@ class RecodeCallbackLi(RecodeCallbackBase):
         return "\n"
 
 
-class RecodeCallbackOl(RecodeCallbackBase):
+class RecodeCallbackOl(RecodeCallbackBody):
 
     tag = XHTML('ol')
 
@@ -358,7 +366,7 @@ class RecodeCallbackOl(RecodeCallbackBase):
         return "\n\\end{enumerate}\n"
 
 
-class RecodeCallbackP(RecodeCallbackBase):
+class RecodeCallbackP(RecodeCallbackBody):
 
     tag = XHTML('p')
 
@@ -369,7 +377,7 @@ class RecodeCallbackP(RecodeCallbackBase):
         return "\n\n"
 
 
-class RecodeCallbackSpan(RecodeCallbackBase):
+class RecodeCallbackSpan(RecodeCallbackBody):
 
     tag = XHTML('span')
 
@@ -380,7 +388,7 @@ class RecodeCallbackSpan(RecodeCallbackBase):
         functions.extend(self.get_class_layout(classes))
         functions.extend(self.get_class_style(classes))
 
-        # save the number of used functions, so we will close them properly
+        # Save the number of used functions, so we will close them properly.
         self.push(len(functions))
 
         return "".join(functions)
@@ -389,7 +397,7 @@ class RecodeCallbackSpan(RecodeCallbackBase):
         return "}" * self.pop()
 
 
-class RecodeCallbackSub(RecodeCallbackBase):
+class RecodeCallbackSub(RecodeCallbackBody):
 
     tag = XHTML('sub')
 
@@ -404,7 +412,7 @@ class RecodeCallbackSub(RecodeCallbackBase):
         return "}$"
 
 
-class RecodeCallbackSup(RecodeCallbackBase):
+class RecodeCallbackSup(RecodeCallbackBody):
 
     tag = XHTML('sup')
 
@@ -415,7 +423,7 @@ class RecodeCallbackSup(RecodeCallbackBase):
         return "}"
 
 
-class RecodeCallbackStrong(RecodeCallbackBase):
+class RecodeCallbackStrong(RecodeCallbackBody):
 
     tag = XHTML('strong')
 
@@ -426,7 +434,7 @@ class RecodeCallbackStrong(RecodeCallbackBase):
         return "}"
 
 
-class RecodeCallbackU(RecodeCallbackBase):
+class RecodeCallbackU(RecodeCallbackBody):
 
     tag = XHTML('u')
 
@@ -437,7 +445,7 @@ class RecodeCallbackU(RecodeCallbackBase):
         return "}"
 
 
-class RecodeCallbackUl(RecodeCallbackBase):
+class RecodeCallbackUl(RecodeCallbackBody):
 
     tag = XHTML('ul')
 
@@ -448,10 +456,16 @@ class RecodeCallbackUl(RecodeCallbackBase):
         return "\n\\end{itemize}\n"
 
 
+# OEB identifier container for the sake of interface simplicity.
+OEBIdentifier = namedtuple('OEBIdentifier', ('type', 'value'))
+
+
 class LatexOutput(OutputFormatPlugin):
 
     name = 'TEX Output'
     author = 'Arkadiusz Bokowy'
+    version = (2, 0, 0)
+    minimum_calibre_version = (5, 0, 0)
     file_type = 'tex'
 
     options = set([
@@ -489,7 +503,7 @@ class LatexOutput(OutputFormatPlugin):
         self.oeb, self.opts, self.log = oeb, opts, log
         self.callbacks = RecodeCallbackRegistry(self)
 
-        # set the base-name for this conversion (e.g. directory prefix)
+        # set the base-name for this conversion (e.g.: directory prefix)
         self.basename = os.path.splitext(os.path.basename(output_path))[0]
 
         # create output directory if needed
@@ -600,17 +614,13 @@ class LatexOutput(OutputFormatPlugin):
         )
 
     def oeb_metadata_get_identifiers(self):
-
-        # identifier container for the sake of interface simplicity
-        Identifier = namedtuple('Identifier', ('type', 'value'))
-
-        return map(
-            lambda x: Identifier(
+        return [
+            OEBIdentifier(
                 type=x.attrib.get('{http://www.idpf.org/2007/opf}scheme').upper(),
                 value=x.value,
-            ),
-            self.oeb.metadata.identifier
-        )
+            )
+            for x in self.oeb.metadata.identifier
+        ]
 
     def oeb_metadata_get_date(self):
         if self.oeb.metadata.date:
@@ -669,7 +679,10 @@ class LatexOutput(OutputFormatPlugin):
 
     def latex_extract_images(self, directory):
 
-        images = filter(lambda x: x.media_type.startswith('image'), self.oeb.manifest)
+        images = [
+            x for x in self.oeb.manifest
+            if x.media_type.startswith('image')
+        ]
         if not images:
             return {}
 
@@ -718,12 +731,8 @@ class LatexOutput(OutputFormatPlugin):
 
     @staticmethod
     def latex_convert_languages(languages):
-        mapping = {
-            'eng': ('en', 'eng', 'english'),
-            'pol': ('pl', 'pol', 'polish'),
-        }
-        languages = map(lambda x: mapping.get(x), languages)
+        languages = map(lambda x: LANGS.get(x), languages)
         languages = tuple(filter(None, languages))
         if languages:
             return languages
-        return (mapping['eng'],)
+        return (LANGS['eng'],)

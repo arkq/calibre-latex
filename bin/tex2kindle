@@ -1,13 +1,26 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
+#
+# Copyright (c) 2015-2024 Arkadiusz Bokowy
+#
+# This file is a part of calibre-latex.
+#
+# This project is licensed under the terms of the MIT license.
 
+import logging
 import re
 import shutil
 import subprocess
-from optparse import OptionParser
+from argparse import ArgumentParser
 from os import listdir
 from os import path
 from os import unlink
-from sys import stderr
+
+
+# Setup default logging configuration
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s: %(message)s",
+)
 
 
 class TexMetadataReader:
@@ -26,8 +39,8 @@ class TexMetadataReader:
             self.content = f.readlines()
 
     def _get_first_match(self, re_match):
-        for l in self.content:
-            match = re_match.match(l)
+        for x in self.content:
+            match = re_match.match(x)
             if match is not None:
                 return match
 
@@ -70,107 +83,98 @@ class TexMetadataReader:
             return match.group(1)
 
 
-optp = OptionParser(
-    usage="usage: %prog [options] <document>",
+parser = ArgumentParser(
     description="(La)TeX document converter for Kindle-compatible devices.",
 )
-optp.add_option(
+parser.add_argument(
     "--engine",
     help="use given TeX engine for TeX to HTML conversion",
     choices=("latex", "lualatex", "xelatex"),
     default="latex",
     action="store",
-    type="choice",
     dest="engine",
 )
-optp.add_option(
+parser.add_argument(
     "--keep-files",
     help="keep intermediary files created during the TeX file processing",
     action="store_true",
     dest="keep_files",
 )
-optp.add_option(
+parser.add_argument(
     "--keep-html",
     help="keep HTML files created during the TeX file processing",
     action="store_true",
     dest="keep_html",
 )
-
-
-# make sure, that the required command is available
-def assert_required_command(cmd):
-    if not shutil.which(cmd):
-        stderr.write("{}: error: missing required command: {}\n".format(
-            optp.get_prog_name(),
-            cmd,
-        ))
-        optp.exit()
+parser.add_argument(
+    "FILE",
+    help="input TeX document file",
+    action="store",
+)
 
 
 # mk4ht might not handle white-spaces in the file name
 def assert_no_whitespace(name):
     if name.find(" ") != -1:
-        stderr.write(
-            "{prog}: warning: white-space found: {filename}\n"
+        logging.warning(
+            "White-space character found: {filename}\n"
             "\n"
             "NOTE: It is very unlikely that your version of mk4h will handle white-spaces\n"
             "      in the file name - in general it does not handle them. However, if you\n"
             "      feel lucky you may try to proceed and see what will happen. Otherwise,\n"
             "      try to rename your document, e.g.:\n"
-            "      rename ' ' '_' '{filename}'\n"
-            "\n".format(
-                prog=optp.get_prog_name(),
+            "      rename ' ' '_' '{filename}'\n".format(
+                prog=parser.prog,
                 filename=name,
             )
         )
         if input("Do you want to continue? [y/N] ").upper() != "Y":
-            optp.exit()
+            parser.exit()
+
+
+# make sure, that the required command is available
+def assert_required_command(cmd):
+    if not shutil.which(cmd):
+        logging.error("Missing required command: %s", cmd)
+        parser.exit()
 
 
 # wrapper for subprocess call method, which logs called command
 def call_command(*args):
-    stderr.write("{}: call: {}\n".format(
-        optp.get_prog_name(),
-        " ".join(args),
-    ))
+    logging.info("RUN: %s", " ".join(args))
     return subprocess.call(args)
 
 
-opts, args = optp.parse_args()
+args = parser.parse_args()
 
 try:
-    document_tex = args[0]
+    document_tex = args.FILE
     document_base = path.splitext(document_tex)[0]
 except IndexError:
-    optp.print_help()
-    optp.exit()
+    parser.print_help()
+    parser.exit()
 
+assert_no_whitespace(document_tex)
 assert_required_command("mk4ht")
 assert_required_command("ebook-convert")
 
 try:
     metadata = TexMetadataReader(document_tex)
 except (FileNotFoundError, PermissionError) as e:
-    optp.print_usage()
-    stderr.write("{}: error: {}: {}\n".format(
-        optp.get_prog_name(),
-        e.strerror,
-        e.filename,
-    ))
-    optp.exit()
-
-assert_no_whitespace(document_tex)
+    parser.print_usage()
+    logger.error("%s: %s", e.strerror, e.filename)
+    parser.exit()
 
 # process TeX to HTML conversion
 call_command(
     "mk4ht",
-    "ht{}".format(opts.engine),
+    "ht{}".format(args.engine),
     document_tex,
     "xhtml,pmathml",
 )
 
 # clean mess left by the mk4ht command
-if not opts.keep_files:
+if not args.keep_files:
     extensions = (
         "4ct", "4tc", "aux", "css", "dvi", "ent", "idv", "lg", "log",
         "out", "out.ps", "tmp", "toc", "xdv", "xref",
@@ -222,7 +226,7 @@ call_command(
 )
 
 # remove HTML files generated by the mk4ht command
-if not opts.keep_html and not opts.keep_files:
+if not args.keep_html and not args.keep_files:
     re_html = re.compile(r'{}\d*\.html'.format(re.escape(path.basename(document_base))))
     for document_html in filter(re_html.match, listdir(path.dirname(document_base) or ".")):
         unlink(document_html)
