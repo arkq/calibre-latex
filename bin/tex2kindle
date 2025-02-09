@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 #
-# Copyright (c) 2015-2024 Arkadiusz Bokowy
+# Copyright (c) 2015-2025 Arkadiusz Bokowy
 #
 # This file is a part of calibre-latex.
 #
 # This project is licensed under the terms of the MIT license.
 
 import logging
+import os
 import re
 import shutil
 import subprocess
+import tempfile
 from argparse import ArgumentParser
-from os import listdir
-from os import path
-from os import unlink
+from pathlib import Path
 
 
 # Setup default logging configuration
@@ -26,7 +26,7 @@ logging.basicConfig(
 class TexMetadataReader:
     """TeX document metadata extractor."""
 
-    re_documentclass = re.compile(r"\\documentclass.*{(.+)}")
+    re_document_class = re.compile(r"\\documentclass.*{(.+)}")
     re_languages = re.compile(r"\\usepackage\[(.*)\]{babel}")
     re_author = re.compile(r"\\author{(.+)}")
     re_cover = re.compile(r"\\covergraphic{(.+)}")
@@ -35,7 +35,7 @@ class TexMetadataReader:
     re_isbn = re.compile(r"\\ISBN{(\d+)}")
 
     def __init__(self, file):
-        with open(file) as f:
+        with open(file, encoding="utf-8") as f:
             self.content = f.readlines()
 
     def _get_first_match(self, re_match):
@@ -48,7 +48,7 @@ class TexMetadataReader:
         return re.sub(r"\\(.)", r"\1", text)
 
     def get_document_class(self):
-        match = self._get_first_match(self.re_documentclass)
+        match = self._get_first_match(self.re_document_class)
         if match is not None:
             return match.group(1)
 
@@ -110,26 +110,8 @@ parser.add_argument(
     "FILE",
     help="input TeX document file",
     action="store",
+    type=Path,
 )
-
-
-# mk4ht might not handle white-spaces in the file name
-def assert_no_whitespace(name):
-    if name.find(" ") != -1:
-        logging.warning(
-            "White-space character found: {filename}\n"
-            "\n"
-            "NOTE: It is very unlikely that your version of mk4h will handle white-spaces\n"
-            "      in the file name - in general it does not handle them. However, if you\n"
-            "      feel lucky you may try to proceed and see what will happen. Otherwise,\n"
-            "      try to rename your document, e.g.:\n"
-            "      rename ' ' '_' '{filename}'\n".format(
-                prog=parser.prog,
-                filename=name,
-            )
-        )
-        if input("Do you want to continue? [y/N] ").upper() != "Y":
-            parser.exit()
 
 
 # make sure, that the required command is available
@@ -142,91 +124,104 @@ def assert_required_command(cmd):
 # wrapper for subprocess call method, which logs called command
 def call_command(*args):
     logging.info("RUN: %s", " ".join(args))
-    return subprocess.call(args)
+    return subprocess.run(args)
 
 
 args = parser.parse_args()
 
-try:
-    document_tex = args.FILE
-    document_base = path.splitext(document_tex)[0]
-except IndexError:
-    parser.print_help()
-    parser.exit()
-
-assert_no_whitespace(document_tex)
 assert_required_command("mk4ht")
 assert_required_command("ebook-convert")
 
 try:
-    metadata = TexMetadataReader(document_tex)
+    metadata = TexMetadataReader(args.FILE)
 except (FileNotFoundError, PermissionError) as e:
     parser.print_usage()
-    logger.error("%s: %s", e.strerror, e.filename)
+    logging.error("%s: %s", e.strerror, e.filename)
     parser.exit()
 
-# process TeX to HTML conversion
-call_command(
-    "mk4ht",
-    "ht{}".format(args.engine),
-    document_tex,
-    "xhtml,pmathml",
-)
+# The mk4ht command might not work properly if it is not executed in the
+# same directory as the input file.
+os.chdir(args.FILE.parent)
 
-# clean mess left by the mk4ht command
-if not args.keep_files:
-    extensions = (
-        "4ct", "4tc", "aux", "css", "dvi", "ent", "idv", "lg", "log",
-        "out", "out.ps", "tmp", "toc", "xdv", "xref",
+# The mk4ht command does not work with input files with white-spaces in the
+# file name. To overcome this, create a temporary file and copy the content
+# of the input file into it.
+with tempfile.NamedTemporaryFile(mode="wb", suffix=".tex", delete=False,
+                                 dir=".") as f:
+    f_name = Path(f.name)
+
+    # Copy the content of the input TeX file into the temporary file.
+    with open(args.FILE, "rb") as g:
+        f.write(g.read())
+        f.flush()
+    # Process TeX to HTML conversion.
+    call_command(
+        "mk4ht",
+        "ht{}".format(args.engine),
+        # Do not pass the path to the temporary file, as mk4ht does not
+        # handle special characters in the file name.
+        str(f_name.name),
+        "xhtml,pmathml",
     )
-    for tmp in map(lambda x: document_base + "." + x, extensions):
-        if path.exists(tmp):
-            unlink(tmp)
 
-# Convert previously generated HTML document(s) into the MOBI format using
-# Calibre conversion suite. This conversion is optimized for Kindle device.
+    # Clean mess left by the mk4ht command.
+    if not args.keep_files:
+        extensions = (
+            ".4ct", ".4tc", ".aux", ".css", ".dvi", ".ent", ".idv", ".lg",
+            ".log", ".out", ".out.ps", ".tmp", ".toc", ".xdv", ".xref")
+        for tmp in map(lambda x: f_name.with_suffix(x), extensions):
+            tmp.unlink(missing_ok=True)
 
-convert_options = [
-    "--output-profile=kindle",
-    "--no-inline-toc",
-    # "--share-not-sync",
-]
+    # Convert previously generated HTML document(s) into the MOBI format
+    # using Calibre conversion suite. This conversion is optimized for a
+    # Kindle device.
 
-documentclass = metadata.get_document_class()
-if documentclass == "article":
-    convert_options.append('--chapter=//*[@class="sectionHead"]')
-    # extra_options.append('--level1-toc=//h:h3[@class="sectionHead"]')
-    # extra_options.append('--level2-toc=//h:h4[@class="subsectionHead"]')
-if documentclass == "book":
-    convert_options.append('--chapter=//*[re:test(@class,"partHead|chapterHead")]')
-    # extra_options.append('--level1-toc=//h:h2[@class="chapterHead"]')
-    # extra_options.append('--level2-toc=//h:h3[@class="sectionHead"]')
+    convert_options = [
+        "--output-profile=kindle",
+        "--no-inline-toc",
+        # "--share-not-sync",
+    ]
 
-languages = metadata.get_languages()
-if languages:
-    convert_options.append("--language=" + languages[0])
-author = metadata.get_author()
-if author:
-    convert_options.append("--authors=" + author)
-cover = metadata.get_cover()
-if cover:
-    convert_options.append("--cover=" + cover)
-publisher = metadata.get_publisher()
-if publisher:
-    convert_options.append("--publisher=" + publisher)
-isbn = metadata.get_isbn()
-if isbn:
-    convert_options.append("--isbn=" + isbn)
+    document_class = metadata.get_document_class()
+    if document_class == "article":
+        convert_options.append('--chapter=//*[@class="sectionHead"]')
+        # extra_options.append('--level1-toc=//h:h3[@class="sectionHead"]')
+        # extra_options.append('--level2-toc=//h:h4[@class="subsectionHead"]')
+    if document_class == "book":
+        convert_options.append('--chapter=//*[re:test(@class,"partHead|chapterHead")]')
+        # extra_options.append('--level1-toc=//h:h2[@class="chapterHead"]')
+        # extra_options.append('--level2-toc=//h:h3[@class="sectionHead"]')
 
-call_command(
-    "ebook-convert",
-    document_base + "." + "html",
-    document_base + "." + "mobi",
-    *convert_options
-)
+    languages = metadata.get_languages()
+    if languages:
+        convert_options.append("--language=" + languages[0])
+    author = metadata.get_author()
+    if author:
+        convert_options.append("--authors=" + author)
+    cover = metadata.get_cover()
+    if cover:
+        convert_options.append("--cover=" + cover)
+    publisher = metadata.get_publisher()
+    if publisher:
+        convert_options.append("--publisher=" + publisher)
+    isbn = metadata.get_isbn()
+    if isbn:
+        convert_options.append("--isbn=" + isbn)
 
-# remove HTML files generated by the mk4ht command
-if not args.keep_html and not args.keep_files:
-    re_html = re.compile(r'{}\d*\.html'.format(re.escape(path.basename(document_base))))
-    for document_html in filter(re_html.match, listdir(path.dirname(document_base) or ".")):
-        unlink(document_html)
+    call_command(
+        "ebook-convert",
+        str(f_name.with_suffix(".html")),
+        str(args.FILE.with_suffix(".mobi").name),
+        *convert_options
+    )
+
+    f.close()
+    # Remove the temporary file.
+    f_name.unlink()
+
+    # Remove HTML files generated by the mk4ht command.
+    if not args.keep_html and not args.keep_files:
+        tmp = re.escape(str(f_name.with_suffix("").name))
+        re_html = re.compile(r'{}\d*\.html'.format(tmp))
+        for tmp in filter(re_html.match, os.listdir(args.FILE.parent)):
+            Path(tmp).unlink()
