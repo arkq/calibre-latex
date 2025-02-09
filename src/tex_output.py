@@ -620,7 +620,7 @@ class LatexOutput(OutputFormatPlugin):
                 "\\ISBN{{{isbn}}}\n"
                 "\n"
             ).format(
-                covergraphic="{}-cover.jpg".format(self.basename),
+                covergraphic="{}.jpg".format(self.basename),
                 authors=" & ".join(authors or creators),
                 publishers=" & ".join(publishers),
                 title=" | ".join(titles),
