@@ -1,11 +1,11 @@
-# Copyright (c) 2014-2024 Arkadiusz Bokowy
+# Copyright (c) 2014-2025 Arkadiusz Bokowy
 #
 # This file is a part of calibre-latex.
 #
 # This project is licensed under the terms of the MIT license.
 
 __license__ = 'MIT'
-__copyright__ = '2014-2024, Arkadiusz Bokowy <arkadiusz.bokowy@gmail.com>'
+__copyright__ = '2014-2025, Arkadiusz Bokowy <arkadiusz.bokowy@gmail.com>'
 __docformat__ = 'restructuredtext en'
 
 import os
@@ -66,7 +66,7 @@ class RecodeCallbackBody(RecodeCallbackRegistry):
         self.refcount = 0
 
         # Internal stack for data stashing.
-        self.datastack = []
+        self.stack = []
 
     def start(self, element):
         """Element recoding entry method."""
@@ -78,11 +78,11 @@ class RecodeCallbackBody(RecodeCallbackRegistry):
 
     def push(self, data):
         """Push data onto the internal stack storage."""
-        self.datastack.append(data)
+        self.stack.append(data)
 
     def pop(self):
         """Pop data from the internal stack storage."""
-        return self.datastack.pop()
+        return self.stack.pop()
 
     @classmethod
     def get_begin(cls, element):
@@ -434,6 +434,39 @@ class RecodeCallbackStrong(RecodeCallbackBody):
         return "}"
 
 
+class RecodeCallbackTable(RecodeCallbackBody):
+
+    tag = XHTML('table')
+
+    def get_begin(self, element):
+        return "\n\\begin{table}[h]\n\\centering\n\\begin{tabular}{}\n"
+
+    def get_end(self, element):
+        return "\\end{tabular}\n\\end{table}\n"
+
+
+class RecodeCallbackTd(RecodeCallbackBody):
+
+    tag = XHTML('td')
+
+    def get_begin(self, element):
+        return ""
+
+    def get_end(self, element):
+        return " & "
+
+
+class RecodeCallbackTr(RecodeCallbackBody):
+
+    tag = XHTML('tr')
+
+    def get_begin(self, element):
+        return ""
+
+    def get_end(self, element):
+        return "\\\\\n"
+
+
 class RecodeCallbackU(RecodeCallbackBody):
 
     tag = XHTML('u')
@@ -670,13 +703,16 @@ class LatexOutput(OutputFormatPlugin):
 
         content = "".join(content)
 
-        # fix obvious misuses of explicit newline marker
+        # Fix obvious misuses of explicit newline marker.
         content = re.sub(r'^( \\\\\*\n)+', r'', content)
         content = re.sub(r'\n\n( \\\\\*\n)+', r'\n\n', content)
 
-        # normalize white characters (tabs, spaces, multiple newlines)
+        # Normalize white characters (tabs, spaces, multiple newlines).
         content = re.sub(r'^ ', r'', re.sub(r'[ \t]+', r' ', content), flags=re.M)
         content = re.sub(r'\s*\n\s*\n\s*\n', r'\n\n', content.strip()) + "\n"
+
+        # Clean up row endings in the tabular environment.
+        content = re.sub(r' \& \\\\$', r' \\\\', content, flags=re.M)
 
         if self.opts.pretty_print:
             content = self.latex_pretty_print(content, length=self.opts.max_line_length)
